@@ -1,0 +1,37 @@
+name: Deploy via WireGuard
+on:
+  push:
+    branches:
+      - master
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up WireGuard
+        run: |
+          sudo apt-get install -y wireguard
+          echo "${{ secrets.WIREGUARD_CONFIG }}" > ~/wg0.conf
+          sudo wg-quick up ~/wg0.conf
+
+          # Extract DNS server from WireGuard config and append to resolv.conf
+          DNS_SERVER=$(grep "DNS = " ~/wg0.conf | cut -d "=" -f2 | tr -d ' ')
+          if [ ! -z "$DNS_SERVER" ]; then
+            echo "nameserver $DNS_SERVER" | sudo tee -a /etc/resolv.conf
+          fi
+
+      - name: Set up SSH Key
+        run: |
+          mkdir ~/.ssh
+          echo "${{ secrets.WEBSERVER_SSH_ID }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H dockerhost >> ~/.ssh/known_hosts
+
+      - name: Deploy Application
+        run: |
+          ssh github-actions@dockerhost "cd /srv/docker/volumes/one137-comments-api && git fetch origin master && git reset --hard origin/master"
+
+      - name: Tear Down WireGuard
+        if: always()
+        run: |
+          sudo wg-quick down ~/wg0.conf
+
