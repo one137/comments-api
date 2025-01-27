@@ -2,7 +2,7 @@ name: Deploy via WireGuard
 on:
   push:
     branches:
-      - master
+      - main
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -28,7 +28,7 @@ jobs:
 
       - name: Deploy Application
         run: |
-          ssh github-actions@dockerhost "cd /srv/docker/volumes/one137-comments-api && git fetch origin master && git reset --hard origin/master"
+          ssh github-actions@dockerhost "cd /srv/docker/volumes/one137-comments-api && git fetch origin main && git reset --hard origin/main"
 
       - name: Tear Down WireGuard
         if: always()
