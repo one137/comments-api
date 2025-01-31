@@ -38,8 +38,6 @@ const app = express()
 
 // Logging 
 
-const info = debug("server | info |")
-const warn = debug("server | WARN |")
 const error = debug("server | ERROR |")
 debug.enable("server *")
 
@@ -66,16 +64,12 @@ async function sendTelegram(text) {
 }
 
 async function log(level, ...args) { 
-    const logFunc = 
-        level === 'info'
-        ? info
-        : level === 'warn'
-        ? warn
-        : error
-    logFunc(...args)
+    const levelPrint = ['warn', 'error'].includes(level) ? level.toUpperCase() : level
+    debug(`server | ${levelPrint} |`)(...args)
 
-    // if (level !== 'info') {
-    await sendTelegram(args.join('\n\n'))
+    if (level !== 'debug') {
+        await sendTelegram(args.join('\n\n'))
+    }
 }
 
 // Middleware setup
@@ -93,7 +87,7 @@ async function connect() {
         await client.connect()
         await client.db("admin").command({ ping: 1 })
         isConnected = true
-        log('info', "Connected to MongoDB")
+        log('debug', "Connected to MongoDB")
     } catch (error) {
         log('error', "Could not connect to MongoDB:", error)
         process.exit(1)
@@ -132,13 +126,13 @@ const isValidSubmissionTime = (timestamp) => {
 const getClientIp = (req) => req.headers['cf-connecting-ip'] ?? req.ip
 
 const healthCheckHandler = (req, res) => {
-    log('info', `GET /health from ${getClientIp(req)}`)
+    log('debug', `GET /health from ${getClientIp(req)}`)
     res.status(isConnected ? 200 : 500).json({ status: isConnected ? "ok" : "error" })
 }
 
 const getCommentsHandler = async (req, res) => {
     const pageName = req.query.pageName
-    log('info', `GET /comments for ${pageName} from ${getClientIp(req)}`)
+    log('debug', `GET /comments for ${pageName} from ${getClientIp(req)}`)
 
     if (!isConnected) {
         log('error', 'GET /comments failed: MongoDB not connected')
@@ -164,7 +158,7 @@ const getCommentsHandler = async (req, res) => {
 
 const addEntryHandler = async (req, res) => {
     const pageName = req.query.pageName
-    log('info', `POST /comments for ${pageName} from ${getClientIp(req)}`)
+    log('debug', `POST /comments for ${pageName} from ${getClientIp(req)}`)
     if (!isConnected) {
         log('error', 'POST /comments failed: MongoDB not connected')
         return res.status(503).json({ error: "Service unavailable" })
@@ -190,6 +184,8 @@ const addEntryHandler = async (req, res) => {
 
     const sanitizedAuthor = author.trim()
     const sanitizedMessage = message.trim()
+
+    log('info', `New comment posted to https://one137.dev/${pageName}.\nauthor: ${sanitizedAuthor}\nmessage:\n${sanitizedMessage}`)
 
     // Convert markdown to HTML and sanitize
     const renderedMarkdown = marked.parse(sanitizedMessage)
