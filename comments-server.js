@@ -190,7 +190,7 @@ const addEntryHandler = async (req, res) => {
     // Convert markdown to HTML and sanitize
     const renderedMarkdown = marked.parse(sanitizedMessage)
     const cleanHtml = DOMPurify.sanitize(renderedMarkdown, {
-        ALLOWED_TAGS: ["p", "br", "strong", "em", "code", "pre", "ul", "ol", "li", "blockquote"],
+        ALLOWED_TAGS: ["p", "br", "em", "code", "pre", "ul", "ol", "li", "blockquote"],
         ALLOWED_ATTR: []
     })
 
