@@ -7,10 +7,6 @@ import { JSDOM } from "jsdom"
 import { marked } from "marked"
 import { MongoClient } from "mongodb"
 
-const info = debug("server | info |")
-const warn = debug("server | WARN |")
-debug.enable("server *")
-
 const config = {
     mongoUri: process.env.MONGODB_URI,
     proxyIP: process.env.PROXY_IP,
@@ -32,9 +28,55 @@ const config = {
     // These values should match the corresponding HTML maxlength on the frontend:
     maxAuthorLength: parseInt(process.env.MAX_AUTHOR_LENGTH, 10) || 50,
     maxMessageLength: parseInt(process.env.MAX_MESSAGE_LENGTH, 10) || 5000,
+
+    // Telegram logging:
+    telegramToken: process.env.TELEGRAM_TOKEN,
+    telegramChatId: process.env.TELEGRAM_CHAT_ID,
 }
 
 const app = express()
+
+// Logging 
+
+const info = debug("server | info |")
+const warn = debug("server | WARN |")
+const error = debug("server | ERROR |")
+debug.enable("server *")
+
+/**
+ * Send message to Telegram chat
+ * @param {string} text - Message to send
+ * @returns {Promise<void>}
+ */
+async function sendTelegram(text) {
+  try {
+    if (!config.telegramToken || !config.telegramChatId) return
+
+    await fetch(`https://api.telegram.org/bot${config.telegramToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: config.telegramChatId,
+        text,
+      })
+    })
+  } catch (err) {
+    error('server | ERROR | Telegram notification failed:', err)
+  }
+}
+
+async function log(level, ...args) { 
+    const logFunc = 
+        level === 'info'
+        ? info
+        : level === 'warn'
+        ? warn
+        : error
+    logFunc(...args)
+
+    // if (level !== 'info') {
+    await sendTelegram(args.join('\n\n'))
+}
 
 // Middleware setup
 app.set("trust proxy", process.env.PROXY_IP)
@@ -51,9 +93,9 @@ async function connect() {
         await client.connect()
         await client.db("admin").command({ ping: 1 })
         isConnected = true
-        info("Connected to MongoDB")
+        log('info', "Connected to MongoDB")
     } catch (error) {
-        warn("Could not connect to MongoDB:", error)
+        log('error', "Could not connect to MongoDB:", error)
         process.exit(1)
     }
 }
@@ -90,16 +132,16 @@ const isValidSubmissionTime = (timestamp) => {
 const getClientIp = (req) => req.headers['cf-connecting-ip'] ?? req.ip
 
 const healthCheckHandler = (req, res) => {
-    info(`GET /health from ${getClientIp(req)}`)
+    log('info', `GET /health from ${getClientIp(req)}`)
     res.status(isConnected ? 200 : 500).json({ status: isConnected ? "ok" : "error" })
 }
 
 const getCommentsHandler = async (req, res) => {
     const pageName = req.query.pageName
-    info(`GET /comments for ${pageName} from ${getClientIp(req)}`)
+    log('info', `GET /comments for ${pageName} from ${getClientIp(req)}`)
 
     if (!isConnected) {
-        warn('GET /comments failed: MongoDB not connected')
+        log('error', 'GET /comments failed: MongoDB not connected')
         return res.status(503).json({ error: "Service unavailable" })
     }
 
@@ -115,16 +157,16 @@ const getCommentsHandler = async (req, res) => {
 
         res.json(comments)
     } catch (error) {
-        warn("GET /comments error:", error)
+        log('error', "GET /comments error:", error)
         res.status(500).json({ error: "Failed to fetch comments" })
     }
 }
 
 const addEntryHandler = async (req, res) => {
     const pageName = req.query.pageName
-    info(`POST /comments for ${pageName} from ${getClientIp(req)}`)
+    log('info', `POST /comments for ${pageName} from ${getClientIp(req)}`)
     if (!isConnected) {
-        warn('POST /comments failed: MongoDB not connected')
+        log('error', 'POST /comments failed: MongoDB not connected')
         return res.status(503).json({ error: "Service unavailable" })
     }
 
@@ -132,17 +174,17 @@ const addEntryHandler = async (req, res) => {
 
     // Spam checks
     if (contact || !isValidSubmissionTime(timestamp)) {
-        warn('POST /comments rejected: spam check failed')
+        log('warn', 'POST /comments rejected: spam check failed')
         return res.status(400).json({ error: "Invalid submission" })
     }
 
     // Input validation
     if (!pageName) {
-        warn("POST /comments rejected: missing pageName parameter")
+        log('warn', "POST /comments rejected: missing pageName parameter")
         return res.status(400).json({ error: "pageName is required" })
     }
     if (!isValidInput(author, config.maxAuthorLength) || !isValidInput(message, config.maxMessageLength)) {
-        warn('POST /comments rejected: invalid input length')
+        log('warn', 'POST /comments rejected: invalid input length')
         return res.status(400).json({ error: "Invalid input" })
     }
 
@@ -170,7 +212,7 @@ const addEntryHandler = async (req, res) => {
             })
         res.sendStatus(201)
     } catch (error) {
-        warn('POST /comments error:', error)
+        log('error', 'POST /comments error:', error)
         res.status(500).json({ error: "Failed to add entry" })
     }
 }
@@ -195,7 +237,7 @@ app.post("/comments-api/comments", writeLimiter, addEntryHandler)
 
 // Graceful shutdown
 async function shutdown() {
-    info("Shutting down gracefully...")
+    log('info', "Shutting down gracefully...")
     if (client) {
         await client.close()
     }
@@ -208,6 +250,6 @@ process.on("SIGINT", shutdown)
 // Start server
 connect().then(() => {
     app.listen(config.port, () => {
-        info(`Comments API listening on port ${config.port}`)
+        log('info', `Comments API listening on port ${config.port}`)
     })
 })
