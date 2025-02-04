@@ -22,12 +22,11 @@ const config = {
     readRateLimit: parseInt(process.env.READ_RATE_LIMIT, 10) || 60,
     maxComments: parseInt(process.env.MAX_COMMENTS, 10) || 100,
 
-    // Reject comments written in less than 3sec (most likely bots):
-    minSubmitTime: parseInt(process.env.MIN_SUBMIT_TIME_MS, 10) || 3000,
-
-    // These values should match the corresponding HTML maxlength on the frontend:
+    // These 3 values should be identical on the frontend:
     maxAuthorLength: parseInt(process.env.MAX_AUTHOR_LENGTH, 10) || 50,
     maxMessageLength: parseInt(process.env.MAX_MESSAGE_LENGTH, 10) || 5000,
+    // Reject comments written in less than 3sec (most likely bots):
+    minSubmitTime: parseInt(process.env.MIN_SUBMIT_TIME_MS, 10) || 3000,
 
     // Telegram logging:
     telegramToken: process.env.TELEGRAM_TOKEN,
@@ -38,7 +37,6 @@ const app = express()
 
 // Logging 
 
-const error = debug("server | ERROR |")
 debug.enable("server *")
 
 /**
@@ -59,7 +57,7 @@ async function sendTelegram(text) {
       })
     })
   } catch (err) {
-    error('server | ERROR | Telegram notification failed:', err)
+    debug('server | ERROR |')('Telegram notification failed:', err) // Don't call log() again!
   }
 }
 
@@ -73,6 +71,7 @@ async function log(level, ...args) {
 }
 
 // Middleware setup
+
 app.set("trust proxy", process.env.PROXY_IP)
 app.use(express.json({ limit: "1kb" }))
 app.use(cors({ origin: new RegExp(config.allowedOriginRE) }))
@@ -156,7 +155,7 @@ const getCommentsHandler = async (req, res) => {
     }
 }
 
-const addEntryHandler = async (req, res) => {
+const addCommentHandler = async (req, res) => {
     const pageName = req.query.pageName
     log('debug', `POST /comments for ${pageName} from ${getClientIp(req)}`)
     if (!isConnected) {
@@ -213,7 +212,7 @@ const addEntryHandler = async (req, res) => {
     }
 }
 
-// Rate limiting setup
+// Route creation with rate limiters
 
 const createLimiter = (max) => rateLimit({
     windowMs: config.rateLimitWindow,
@@ -226,12 +225,12 @@ const createLimiter = (max) => rateLimit({
 const writeLimiter = createLimiter(config.writeRateLimit)
 const readLimiter = createLimiter(config.readRateLimit)
 
-// Routes creation
 app.get("/comments-api/health", readLimiter, healthCheckHandler)
 app.get("/comments-api/comments", readLimiter, getCommentsHandler)
-app.post("/comments-api/comments", writeLimiter, addEntryHandler)
+app.post("/comments-api/comments", writeLimiter, addCommentHandler)
 
 // Graceful shutdown
+
 async function shutdown() {
     log('info', "Shutting down gracefully...")
     if (client) {
@@ -244,8 +243,7 @@ process.on("SIGTERM", shutdown)
 process.on("SIGINT", shutdown)
 
 // Start server
-connect().then(() => {
-    app.listen(config.port, () => {
-        log('info', `Comments API listening on port ${config.port}`)
-    })
-})
+
+await connect()
+app.listen(config.port, () => log('info', `Comments API listening on port ${config.port}`))
+
